@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GrainGuard simulator</title>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --page:#eef2f3; --surface:#fbfcfc; --ink:#14232a; --ink-2:#455a63; --line:#d5dee2;
+    --accent:#0f6b7a; --soft:#dcecef; --ok:#2f8f46; --warn:#c98a10; --bad:#c0392b; --temp:#d9731f; --rh:#1f6fb5;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --page:#0f171a; --surface:#162227; --ink:#e4eef1; --ink-2:#aec1c8; --line:#263840; --accent:#5cc0d2; --soft:#1c3a42; --ok:#58c373; --warn:#e8b64a; --bad:#ee7466; --temp:#f0974d; --rh:#6db3f0; }
+  }
+  :root[data-theme="dark"] { --page:#0f171a; --surface:#162227; --ink:#e4eef1; --ink-2:#aec1c8; --line:#263840; --accent:#5cc0d2; --soft:#1c3a42; --ok:#58c373; --warn:#e8b64a; --bad:#ee7466; --temp:#f0974d; --rh:#6db3f0; }
+  html { background:var(--page); }
+  *, *::before, *::after { box-sizing:inherit; }
+  body { margin:0; background:var(--page); color:var(--ink); font:15px/1.5 var(--sans); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); background:var(--surface); }
+  h1 { margin:0; font-size:22px; color:var(--accent); }
+  header p { margin:2px 0 0; color:var(--ink-2); font-size:14px; }
+  main { max-width:1000px; margin:0 auto; padding:16px; display:grid; gap:14px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  h2 { margin:0 0 10px; font-size:15px; }
+  .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .stat { border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .stat small { color:var(--ink-2); display:block; }
+  .stat b { font-size:20px; }
+  .pill { display:inline-block; padding:3px 12px; border-radius:99px; font-weight:700; color:#fff; background:var(--ok); }
+  .pill.off { background:#7b8d95; } .pill.warn { background:var(--warn); } .pill.bad { background:var(--bad); }
+  label { display:block; font-weight:600; font-size:14px; margin-bottom:2px; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .ctrl { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+  button, select { font:inherit; font-weight:600; border-radius:10px; border:1px solid var(--line); padding:7px 13px; background:var(--soft); color:var(--ink); cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button:disabled, input:disabled { opacity:.45; cursor:not-allowed; }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  canvas { width:100%; height:240px; display:block; }
+  .legend { display:flex; gap:16px; font-size:13px; color:var(--ink-2); margin-top:6px; flex-wrap:wrap; }
+  .legend i { display:inline-block; width:14px; height:4px; margin-right:5px; vertical-align:middle; border-radius:2px; }
+  #log { max-height:170px; overflow:auto; font-size:13px; color:var(--ink-2); margin:0; padding-left:18px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--ink-2); font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GrainGuard simulator</h1>
+  <p>Simulates the bin’s three-depth sensor probe and the controller that switches the fan and alarm.</p>
+</header>
+<main>
+  <section class="card">
+    <h2>Controller status</h2>
+    <div class="row">
+      <div class="stat"><small>Fan</small><span id="fan" class="pill off">OFF</span></div>
+      <div class="stat"><small>Alarm buzzer</small><span id="alarm" class="pill">OK</span></div>
+      <div class="stat"><small>Highest temperature</small><b id="maxT">-</b></div>
+      <div class="stat"><small>Highest humidity</small><b id="maxRH">-</b></div>
+      <div class="stat"><small>Simulated time</small><b id="clock">0 h 00 min</b></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Probe readings</h2>
+    <table>
+      <thead><tr><th>Sensor</th><th>Position</th><th>Temperature</th><th>Humidity</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Weather outside and settings</h2>
+    <div class="ctrl">
+      <div><label>Outside temperature: <span id="ambTv">28</span> °C</label><input id="ambT" type="range" min="15" max="42" value="28"></div>
+      <div><label>Outside humidity: <span id="ambRHv">65</span> %</label><input id="ambRH" type="range" min="20" max="100" value="65"></div>
+      <div><label>Fan ON above (humidity): <span id="rhOnv">70</span> %</label><input id="rhOn" type="range" min="55" max="85" value="70"></div>
+      <div><label>Fan ON above (temperature): <span id="tOnv">30</span> °C</label><input id="tOn" type="range" min="25" max="38" value="30"></div>
+    </div>
+    <div class="btns">
+      <button id="wet">Rainy day (humid air)</button>
+      <button id="dry">Dry harmattan day</button>
+      <button id="hot">Cause a hot spot in the grain</button>
+      <label style="margin:0;align-self:center">Speed</label>
+      <select id="speed"><option value="1">1x</option><option value="3" selected>3x</option><option value="8">8x</option><option value="24">24x</option><option value="96">96x</option></select>
+      <button id="pause">Pause</button>
+      <button id="reset">Reset</button>
+      <button id="loadw">Load weather file (CSV)</button><input id="wfile" type="file" accept=".csv,text/csv" style="display:none"><button id="slid" style="display:none">Back to sliders</button>
+      <span id="wstat" style="flex-basis:100%;font-size:13px;color:var(--ink-2)"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Last 4 hours (simulated)</h2>
+    <canvas id="chart" aria-label="Chart of highest temperature and humidity over time"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--temp)"></i>Highest temperature (°C)</span>
+      <span><i style="background:var(--rh)"></i>Highest humidity (%)</span>
+      <span>Dashed lines show the fan thresholds. Shaded bands show when the fan was ON.</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Event log</h2>
+    <ol id="log"></ol>
+  </section>
+</main>
+<script>
+(function () {
+  // ---------- 1. Settings (the controller thresholds) ----------
+  var TEMP_ALARM = 40;        // buzzer above this temperature (C)
+  var RH_OFF_MARGIN = 5;      // fan switches OFF when 5 % RH below the ON value (hysteresis)
+  var T_OFF_MARGIN = 2;       // and 2 C below the temperature ON value
+
+  // ---------- 2. State ----------
+  var sensors, fanOn, alarmOn, minutes, history, paused, timer, logEl = document.getElementById('log');
+  var names = ['S1', 'S2', 'S3'], pos = ['Upper (25 cm below lid level)', 'Middle (50 cm)', 'Lower (75 cm)'];
+  var depthOffsetT = [1.2, 0, -0.8], depthOffsetRH = [1.5, 0, -1];
+
+  function $(id) { return document.getElementById(id); }
+  function val(id) { return Number(document.getElementById(id).value); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  // weather file replay: when wx is set, the outside weather comes from the file (one row per hour)
+  var wx = null, wxName = '';
+  function wxHour() { return wx ? Math.min(Math.floor(minutes / 60), wx.length - 1) : 0; }
+  function curT() { return wx ? wx[wxHour()].t : val('ambT'); }
+  function curRH() { return wx ? wx[wxHour()].rh : val('ambRH'); }
+
+  function reset() {
+    sensors = [0, 1, 2].map(function (i) { return { t: 27 + depthOffsetT[i], rh: 62 + depthOffsetRH[i] }; });
+    fanOn = false; alarmOn = false; minutes = 0; history = [];
+    logEl.innerHTML = '';
+    log('Simulation started. Grain at about 27 °C and 62 % RH.');
+    render();
+  }
+
+  function log(msg) {
+    var li = document.createElement('li');
+    li.textContent = fmtClock(minutes) + ' - ' + msg;
+    logEl.insertBefore(li, logEl.firstChild);
+  }
+  function fmtClock(m) { var h = Math.floor(m / 60), mm = m % 60; return h + ' h ' + (mm < 10 ? '0' : '') + mm + ' min'; }
+
+  // ---------- 3. Physics (very simple model, one step = 1 simulated minute) ----------
+  function physics() {
+    var ambT = curT(), ambRH = curRH();
+    sensors.forEach(function (s, i) {
+      // temperature drifts towards outside temperature; much faster when the fan blows air through
+      var k = fanOn ? 0.05 : 0.004;
+      s.t += (ambT + depthOffsetT[i] - s.t) * k;
+      // damp grain above 75 % RH slowly heats itself (respiration and mould growth)
+      if (s.rh > 75) s.t += 0.03;
+      // humidity: fan pulls grain RH towards the outside air; without the fan it creeps up with heat
+      if (fanOn) s.rh += (ambRH * 0.9 + depthOffsetRH[i] - s.rh) * 0.03;
+      else s.rh += 0.03 + Math.max(0, s.t - 25) * 0.01;
+      s.rh = clamp(s.rh, 15, 99);
+    });
+  }
+
+  // ---------- 4. Controller (what the microcontroller would do) ----------
+  function controller() {
+    var maxT = Math.max.apply(null, sensors.map(function (s) { return s.t; }));
+    var maxRH = Math.max.apply(null, sensors.map(function (s) { return s.rh; }));
+    var rhOn = val('rhOn'), tOn = val('tOn');
+    if (!fanOn && (maxRH > rhOn || maxT > tOn)) { fanOn = true; log('Fan ON (humidity ' + maxRH.toFixed(0) + ' %, temperature ' + maxT.toFixed(1) + ' °C).'); }
+    else if (fanOn && maxRH < rhOn - RH_OFF_MARGIN && maxT < tOn - T_OFF_MARGIN) { fanOn = false; log('Fan OFF. Readings are back in the safe range.'); }
+    if (!alarmOn && maxT > TEMP_ALARM) { alarmOn = true; log('ALARM: temperature above ' + TEMP_ALARM + ' °C. Check the grain for spoilage.'); }
+    else if (alarmOn && maxT < TEMP_ALARM - 3) { alarmOn = false; log('Alarm cleared.'); }
+    return { maxT: maxT, maxRH: maxRH };
+  }
+
+  // ---------- 5. Display ----------
+  function render(r) {
+    r = r || controller0();
+    $('fan').textContent = fanOn ? 'ON' : 'OFF'; $('fan').className = 'pill' + (fanOn ? '' : ' off');
+    $('alarm').textContent = alarmOn ? 'ALARM' : (r.maxT > val('tOn') || r.maxRH > val('rhOn') ? 'WATCH' : 'OK');
+    $('alarm').className = 'pill' + (alarmOn ? ' bad' : (r.maxT > val('tOn') || r.maxRH > val('rhOn') ? ' warn' : ''));
+    $('maxT').textContent = r.maxT.toFixed(1) + ' °C'; $('maxRH').textContent = r.maxRH.toFixed(0) + ' %';
+    $('clock').textContent = fmtClock(minutes);
+    if (wx) { var wh = wx[wxHour()]; $('ambTv').textContent = wh.t.toFixed(1); $('ambRHv').textContent = wh.rh.toFixed(0); $('wstat').textContent = 'Replaying ' + wxName + ': hour ' + (wxHour() + 1) + ' of ' + wx.length + ' (' + wh.time + ')'; }
+    $('tbody').innerHTML = sensors.map(function (s, i) {
+      return '<tr><td>' + names[i] + '</td><td>' + pos[i] + '</td><td>' + s.t.toFixed(1) + ' °C</td><td>' + s.rh.toFixed(0) + ' %</td></tr>';
+    }).join('');
+    drawChart();
+  }
+  function controller0() {
+    return { maxT: Math.max.apply(null, sensors.map(function (s) { return s.t; })), maxRH: Math.max.apply(null, sensors.map(function (s) { return s.rh; })) };
+  }
+
+  function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function drawChart() {
+    var c = $('chart'), dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    c.width = w * dpr; c.height = h * dpr;
+    var g = c.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+    var L = 38, R = 8, T = 8, B = 22, pw = w - L - R, ph = h - T - B, N = 240;
+    var lo = 10, hi = 100;
+    function X(i) { return L + pw * i / (N - 1); }
+    function Y(v) { return T + ph * (1 - (v - lo) / (hi - lo)); }
+    g.font = '11px system-ui, sans-serif'; g.fillStyle = css('--ink-2'); g.strokeStyle = css('--line'); g.lineWidth = 1;
+    for (var v = 10; v <= 100; v += 15) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.fillText(v, 8, Y(v) + 4); }
+    var data = history.slice(-N), off = N - data.length;
+    // fan-on bands
+    g.fillStyle = 'rgba(15,107,122,0.15)';
+    data.forEach(function (d, i) { if (d.fan) g.fillRect(X(i + off) - 1, T, 3, ph); });
+    // threshold lines
+    function hline(v, col) { g.strokeStyle = col; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.setLineDash([]); }
+    hline(val('rhOn'), css('--rh')); hline(val('tOn'), css('--temp'));
+    function line(key, col) {
+      g.strokeStyle = col; g.lineWidth = 2; g.beginPath();
+      data.forEach(function (d, i) { var x = X(i + off), y = Y(d[key]); if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); });
+      g.stroke();
+    }
+    line('rh', css('--rh')); line('t', css('--temp'));
+  }
+
+  // ---------- 6. Main loop ----------
+  function step(skip) {
+    if (wx && Math.floor(minutes / 60) >= wx.length) { paused = true; $('pause').textContent = 'Resume'; log('End of weather file (' + wx.length + ' hours). Press Reset to replay it.'); render(); return; }
+    physics();
+    var r = controller();
+    minutes += 1;
+    history.push({ t: r.maxT, rh: r.maxRH, fan: fanOn });
+    if (history.length > 600) history.shift();
+    if (!skip) render(r);
+  }
+  function start() {
+    clearInterval(timer);
+    var sp = val('speed'), n = Math.max(1, Math.round(sp / 8));
+    timer = setInterval(function () { for (var i = 0; i < n - 1; i++) { if (!paused) step(true); } if (!paused) step(); }, 1000 / (2 * Math.min(sp, 8)));
+  }
+
+  // ---------- 7. Buttons and sliders ----------
+  ['ambT', 'ambRH', 'rhOn', 'tOn'].forEach(function (id) {
+    $(id).addEventListener('input', function () { $(id + 'v').textContent = $(id).value; render(); });
+  });
+  $('wet').addEventListener('click', function () { $('ambT').value = 25; $('ambRH').value = 95; sync(); log('Weather set to rainy: 25 °C, 95 % RH.'); });
+  $('dry').addEventListener('click', function () { $('ambT').value = 32; $('ambRH').value = 30; sync(); log('Weather set to dry harmattan: 32 °C, 30 % RH.'); });
+  $('hot').addEventListener('click', function () { sensors[1].t += 12; sensors[1].rh = Math.min(99, sensors[1].rh + 8); log('Hot spot created around sensor S2.'); render(); });
+  $('speed').addEventListener('change', start);
+  $('pause').addEventListener('click', function () { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; });
+  $('reset').addEventListener('click', function () { $('ambT').value = 28; $('ambRH').value = 65; sync(); reset(); });
+
+  // ---------- 8. Weather file replay ----------
+  function setReplay(on) {
+    ['ambT', 'ambRH'].forEach(function (id) { $(id).disabled = on; });
+    $('wet').disabled = on; $('dry').disabled = on;
+    $('slid').style.display = on ? '' : 'none';
+    if (!on) { wx = null; $('wstat').textContent = ''; sync(); }
+  }
+  function findCol(head, names) {
+    for (var i = 0; i < head.length; i++) for (var j = 0; j < names.length; j++) {
+      var h = head[i]; if (h === names[j] || h.indexOf(names[j] + ' ') === 0 || h.indexOf(names[j] + '(') === 0) return i;
+    }
+    return -1;
+  }
+  function loadWeather(text, name) {
+    var lines = text.split(/\r?\n/), hi = -1, ct = -1, cm = -1, cr = -1;
+    for (var i = 0; i < lines.length && hi < 0; i++) {
+      var head = lines[i].split(',').map(function (s) { return s.replace(/"/g, '').trim().toLowerCase(); });
+      ct = findCol(head, ['time', 'timestamp', 'datetime']); cm = findCol(head, ['out_t', 'temperature_2m', 'temperature']); cr = findCol(head, ['out_rh', 'relative_humidity_2m', 'humidity']);
+      if (ct >= 0 && cm >= 0 && cr >= 0) hi = i;
+    }
+    if (hi < 0) { $('wstat').textContent = 'Could not read ' + name + ': it needs time, temperature and humidity columns.'; return; }
+    var rows = [];
+    for (var k = hi + 1; k < lines.length; k++) {
+      var p = lines[k].split(',').map(function (s) { return s.replace(/"/g, '').trim(); });
+      var t = parseFloat(p[cm]), r = parseFloat(p[cr]);
+      if (!isNaN(t) && !isNaN(r) && p[ct]) rows.push({ time: p[ct], t: t, rh: Math.max(0, Math.min(100, r)) });
+    }
+    if (rows.length < 2) { $('wstat').textContent = 'Could not read ' + name + ': no usable rows found.'; return; }
+    wx = rows; wxName = name; paused = false; $('pause').textContent = 'Pause';
+    setReplay(true); reset();
+    log('Weather file loaded: ' + name + ' (' + rows.length + ' hours). Sliders are off while it replays.');
+  }
+  $('loadw').addEventListener('click', function () { $('wfile').click(); });
+  $('wfile').addEventListener('change', function () {
+    var f = this.files[0], input = this; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () { loadWeather(String(rd.result), f.name); input.value = ''; };
+    rd.readAsText(f);
+  });
+  $('slid').addEventListener('click', function () { setReplay(false); log('Back to manual weather (sliders).'); });
+  function sync() { ['ambT', 'ambRH', 'rhOn', 'tOn'].forEach(function (id) { $(id + 'v').textContent = $(id).value; }); render(); }
+  window.addEventListener('resize', drawChart);
+
+  paused = false; reset(); start();
+})();
+</script>
+</body>
+</html>
